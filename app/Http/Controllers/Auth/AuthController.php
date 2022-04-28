@@ -11,6 +11,11 @@ use App\Models\User;
 
 class AuthController extends Controller
 {
+
+    public function __construct(User $user){
+        $this->user = $user;
+    }
+
     /**
      * @return View
      */
@@ -28,12 +33,12 @@ class AuthController extends Controller
         $credentials = $request->only('email', 'password');
 
         // アカウントがロックされていたら弾く
-        $user = User::where('email', '=',  $credentials['email'])->first();
+        $user = $this->user->getUserByEmail($credentials['email']);
 
         // 取得したユーザーが存在した場合
         if (!is_null($user)) {
             // アカウントロックされている場合
-            if ($user->locked_flg === 1) {
+            if ($this->user->isAccountLocked($user)) {
                 // アカウントロックのメッセージ
                 return back()->withErrors([
                     'danger' => 'アカウントがロックされています。'
@@ -43,22 +48,15 @@ class AuthController extends Controller
             if (Auth::attempt($credentials)) {
                 $request->session()->regenerate();
                 // ログイン成功時、エラーカウントが0以外なら初期化
-                if ($user->error_count > 0) {
-                    $user->error_count = 0;
-                    // エラーカウントを保存
-                    $user->save();
-                }
+                $this->user->resetErrorCount($user);
                 // ログイン成功時のメッセージ
                 return redirect()->route('home')->with('success', 'ログイン成功しました！');
             }
 
             // ログイン失敗の場合、エラーカウントをインクリメント
-            $user->error_count = $user->error_count + 1;
-            // エラーカウントが5以上の場合、アカウントをロック
-            if ($user->error_count > 5) {
-                $user->locked_flg = 1;
-                // エラーカウントを保存
-                $user->save();
+            $user->error_count = $this->user->addErrorCount($user->error_count);
+            // エラーカウントが6以上の場合、アカウントをロック
+            if ($this->user->lockAccount($user)) {
                 // アカウントロックした場合
                 return back()->withErrors([
                     'danger' => 'アカウントがロックされました！解除したい場合は運営者に連絡してください。'
